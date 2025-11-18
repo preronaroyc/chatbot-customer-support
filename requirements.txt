@@ -1,0 +1,9 @@
+langchain_google_genai
+langchain_community 
+langchain 
+pymysql 
+chromadb
+python-dotenv
+ipykernel
+langchain-huggingface
+langchain-chroma
