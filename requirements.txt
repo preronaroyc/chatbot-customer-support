@@ -7,3 +7,6 @@ python-dotenv
 ipykernel
 langchain-huggingface
 langchain-chroma
+sentence-transformers
+pypdf
+pathlib
