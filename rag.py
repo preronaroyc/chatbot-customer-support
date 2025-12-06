@@ -1,8 +1,8 @@
-# Import necessary libraries
+# Import necessary librariesimport os
 import os
+from dotenv import load_dotenv
 import shutil
 from pathlib import Path
-from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate  
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser  
@@ -13,11 +13,24 @@ from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()  
-api_key = os.getenv("GEMINI_API_KEY")                         
+api_key = os.getenv("GEMINI_API_KEY")
 
-# Function to load pdf and split into chunks
-def load_and_split(pdf_path: str):
-    loader = PyPDFLoader(pdf_path)  
+# Define Base Directory for Robust Path Handling
+BASE_DIR = Path.cwd()
+CHROMA_PATH = BASE_DIR / "chroma_db" / "FAQ"
+DOCUMENTS_PATH = BASE_DIR / "documents" / "FAQ.pdf"
+
+# Global variable to cache the chain
+_rag_chain = None              
+
+# Function to the PDF, create embeddings, and save them to disk
+def ingest_documents():
+    if not DOCUMENTS_PATH.exists():
+        raise FileNotFoundError(f"Source document not found at {DOCUMENTS_PATH}")
+
+    print("Database not found. Starting ingestion (One-time process)...")
+    
+    loader = PyPDFLoader(str(DOCUMENTS_PATH))  
     docs = loader.load()
     
     splitter = RecursiveCharacterTextSplitter(
@@ -27,42 +40,38 @@ def load_and_split(pdf_path: str):
     )
     chunks = splitter.split_documents(docs)
 
-    return chunks
-
-# Function to update the vector store with embeddings
-def ingest(pdf_path: str, reset: bool):
-
-    chunks = load_and_split(pdf_path)
-
     embeddings = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2" ,
+        model_name="all-MiniLM-L6-v2",
         encode_kwargs={"normalize_embeddings": True}
     )
-    
-    if reset:
-        db_dir = "./chroma_db/FAQ"
-        if os.path.exists(db_dir):
-            shutil.rmtree(db_dir)
-
-    vector_db = Chroma(
+        
+    vector_db = Chroma.from_documents(
+        documents=chunks,
+        embedding=embeddings,
         collection_name="FAQ",
-        persist_directory="./chroma_db/FAQ" ,
-        embedding_function=embeddings,
+        persist_directory=str(CHROMA_PATH)
     )
-    
-    vector_db.add_documents(chunks)
-    print(f"Ingested {len(chunks)} chunks into vector db")
+    print(f"Ingestion complete. Database saved to {CHROMA_PATH}")
 
-# Function to build retrieval and chat chain
-def build_rag_chain():
+
+# Function to load the existing vector DB and build the chain
+def get_rag_chain():
+    global _rag_chain
+    if _rag_chain is not None:
+        return _rag_chain
+
+    # Check if DB exists; if not, create it ONCE.
+    if not CHROMA_PATH.exists():
+        ingest_documents()
+        
     embeddings = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2" ,
+        model_name="all-MiniLM-L6-v2",
         encode_kwargs={"normalize_embeddings": True}
     )
 
     vector_db = Chroma(
         collection_name="FAQ",
-        persist_directory="./chroma_db/FAQ" ,
+        persist_directory=str(CHROMA_PATH) ,
         embedding_function=embeddings,
     )
 
@@ -98,7 +107,7 @@ def build_rag_chain():
     
     
     # Build the RAG graph: retrieve -> prompt -> LLM -> text
-    rag_chain = (
+    _rag_chain = (
         {
             "context": retriever,
             "question": RunnablePassthrough(),
@@ -108,36 +117,14 @@ def build_rag_chain():
         | StrOutputParser()
     )
 
-    return rag_chain
+    return _rag_chain
 
 
-# function to ask a question
-def ask_question(question: str):
-    chain = build_rag_chain()
-    return chain.invoke(question,
-                        config={
-            "project_name": "jazzy-things-rag"
-            })
-
-# Main function
-def main():
-    pdf_path = "./documents/FAQ.pdf"
-    if Path(pdf_path).exists():
-        ingest(pdf_path, reset = True)
-    else:
-        print(f"WARNING: '{pdf_path}' not found. Skipping ingestion. Place your FAQ PDF and rerun.")
-
-    while True:
-        q = input("Type your customer question (e.g., 'What are your shipping charges?'), or 'exit' to quit.").strip()
-        if q.lower() in {"exit", "quit"}:
-            break
-        try:
-            answer = ask_question(q)
-            print(f"\nAssistant: {answer}\n")
-        except Exception as e:
-            print(f"Error: {e}")
+# Public function to call from Router
+def query_rag(question: str):
+    chain = get_rag_chain()
+    return chain.invoke(question)
 
 if __name__ == "__main__":
-    main()
-
-
+    # Test locally
+    print(query_rag("What are your shipping charges?"))

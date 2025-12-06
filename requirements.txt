@@ -10,3 +10,7 @@ langchain-chroma
 sentence-transformers
 pypdf
 pathlib
+semantic-router
+cryptography
+numpy
+streamlit

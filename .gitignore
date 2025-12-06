@@ -4,3 +4,4 @@ sql_queries/
 rag.ipynb
 sql_extract.ipynb
 chroma_db/
+__pycache__/
